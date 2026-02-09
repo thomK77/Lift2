@@ -1,7 +1,5 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
-using System.IO.Pipes;
-using System.Text;
 
 namespace Lift2App;
 
@@ -12,33 +10,16 @@ public partial class MainForm : Form
     [DllImport("user32.dll")]
     private static extern bool ChangeWindowMessageFilterEx(IntPtr hwnd, uint message, uint action, IntPtr pChangeFilterStruct);
 
+    private const uint WM_DRAGENTER = 0x0231;
+    private const uint WM_DRAGOVER = 0x0232;
     private const uint WM_DROPFILES = 0x0233;
     private const uint WM_COPYDATA = 0x004A;
     private const uint WM_COPYGLOBALDATA = 0x0049;
     private const uint MSGFLT_ADD = 1;
 
-    private const string PipeName = "Lift2Pipe";
-    private const int MaxFilePathBufferSize = 4096; // Maximum buffer size for file paths
-    private Thread? pipeServerThread;
-    private volatile bool isRunning = true;
-    private readonly CancellationTokenSource cancellationTokenSource = new CancellationTokenSource();
-
-    public MainForm(string? initialFilePath = null)
+    public MainForm()
     {
         InitializeComponent();
-
-        // Start the Named Pipe server in a separate thread
-        pipeServerThread = new Thread(RunPipeServer)
-        {
-            IsBackground = true
-        };
-        pipeServerThread.Start();
-
-        // If a file path was provided on startup, open it
-        if (!string.IsNullOrEmpty(initialFilePath))
-        {
-            OpenFile(initialFilePath);
-        }
     }
 
     protected override void OnHandleCreated(EventArgs e)
@@ -48,79 +29,11 @@ public partial class MainForm : Form
         // UIPI-Bypass: Allow drag & drop from non-elevated applications
         // When running with admin rights, Windows blocks drag & drop from normal applications
         // for security reasons. These calls explicitly allow the necessary messages.
-        // Note: WM_COPYDATA and WM_COPYGLOBALDATA are included for complete drag & drop support,
-        // as some operations may use these messages for inter-process data transfer.
+        ChangeWindowMessageFilterEx(this.Handle, WM_DRAGENTER, MSGFLT_ADD, IntPtr.Zero);
+        ChangeWindowMessageFilterEx(this.Handle, WM_DRAGOVER, MSGFLT_ADD, IntPtr.Zero);
         ChangeWindowMessageFilterEx(this.Handle, WM_DROPFILES, MSGFLT_ADD, IntPtr.Zero);
         ChangeWindowMessageFilterEx(this.Handle, WM_COPYDATA, MSGFLT_ADD, IntPtr.Zero);
         ChangeWindowMessageFilterEx(this.Handle, WM_COPYGLOBALDATA, MSGFLT_ADD, IntPtr.Zero);
-    }
-
-    protected override void OnFormClosing(FormClosingEventArgs e)
-    {
-        base.OnFormClosing(e);
-        // Signal the pipe server thread to stop
-        isRunning = false;
-        cancellationTokenSource.Cancel();
-    }
-
-    /// <summary>
-    /// Runs the Named Pipe server in a separate thread to listen for incoming file paths.
-    /// </summary>
-    private void RunPipeServer()
-    {
-        while (isRunning)
-        {
-            try
-            {
-                using (var server = new NamedPipeServerStream(
-                    PipeName,
-                    PipeDirection.In,
-                    1, // Max number of server instances
-                    PipeTransmissionMode.Byte,
-                    PipeOptions.Asynchronous))
-                {
-                    // Wait for a client to connect with cancellation support
-                    var connectTask = server.WaitForConnectionAsync(cancellationTokenSource.Token);
-                    connectTask.Wait(cancellationTokenSource.Token);
-
-                    if (!isRunning)
-                        break;
-
-                    // Read the file path from the pipe
-                    byte[] buffer = new byte[MaxFilePathBufferSize];
-                    int bytesRead = server.Read(buffer, 0, buffer.Length);
-
-                    if (bytesRead > 0)
-                    {
-                        string filePath = Encoding.UTF8.GetString(buffer, 0, bytesRead);
-
-                        // Open the file on the UI thread
-                        if (!string.IsNullOrEmpty(filePath))
-                        {
-                            // Use Invoke to call OpenFile on the UI thread
-                            this.Invoke(new Action(() => OpenFile(filePath)));
-                        }
-                    }
-                }
-            }
-            catch (OperationCanceledException)
-            {
-                // Cancellation requested, exit gracefully
-                break;
-            }
-            catch (IOException)
-            {
-                // Pipe was broken or closed, continue listening
-                if (!isRunning)
-                    break;
-            }
-            catch (Exception)
-            {
-                // Other errors, continue listening unless stopping
-                if (!isRunning)
-                    break;
-            }
-        }
     }
 
     /// <summary>
