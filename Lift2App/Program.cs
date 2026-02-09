@@ -48,8 +48,14 @@ static class Program
                 return true;
             }
         }
-        catch
+        catch (TimeoutException)
         {
+            // Timeout beim Verbindungsversuch - keine Instanz läuft
+            return false;
+        }
+        catch (IOException)
+        {
+            // I/O Fehler beim Verbindungsversuch
             return false;
         }
     }

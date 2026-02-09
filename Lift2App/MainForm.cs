@@ -61,6 +61,7 @@ public partial class MainForm : Form
         base.OnFormClosing(e);
         isRunning = false;
         cancellationTokenSource.Cancel();
+        cancellationTokenSource.Dispose();
     }
 
     private void RunPipeServer()
@@ -76,13 +77,37 @@ public partial class MainForm : Form
                     PipeTransmissionMode.Byte,
                     PipeOptions.Asynchronous))
                 {
+                    // Use async wait with cancellation token
                     var connectTask = server.WaitForConnectionAsync(cancellationTokenSource.Token);
-                    connectTask.Wait(cancellationTokenSource.Token);
+                    
+                    try
+                    {
+                        connectTask.Wait(cancellationTokenSource.Token);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        break;
+                    }
                     
                     if (!isRunning) break;
                     
                     byte[] buffer = new byte[4096];
-                    int bytesRead = server.Read(buffer, 0, buffer.Length);
+                    int bytesRead;
+                    
+                    try
+                    {
+                        // Read with timeout to prevent indefinite blocking
+                        var readTask = server.ReadAsync(buffer, 0, buffer.Length, cancellationTokenSource.Token);
+                        if (!readTask.Wait(5000)) // 5 second timeout
+                        {
+                            continue;
+                        }
+                        bytesRead = readTask.Result;
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        break;
+                    }
                     
                     if (bytesRead > 0)
                     {
@@ -99,9 +124,15 @@ public partial class MainForm : Form
             {
                 break;
             }
-            catch
+            catch (IOException)
             {
+                // I/O errors are expected when shutting down
                 if (!isRunning) break;
+            }
+            catch (ObjectDisposedException)
+            {
+                // Expected during shutdown
+                break;
             }
         }
     }
