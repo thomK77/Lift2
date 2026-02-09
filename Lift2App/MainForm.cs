@@ -27,6 +27,8 @@ public partial class MainForm : Form
         // UIPI-Bypass: Allow drag & drop from non-elevated applications
         // When running with admin rights, Windows blocks drag & drop from normal applications
         // for security reasons. These calls explicitly allow the necessary messages.
+        // Note: WM_COPYDATA and WM_COPYGLOBALDATA are included for complete drag & drop support,
+        // as some operations may use these messages for inter-process data transfer.
         ChangeWindowMessageFilterEx(this.Handle, WM_DROPFILES, MSGFLT_ADD, IntPtr.Zero);
         ChangeWindowMessageFilterEx(this.Handle, WM_COPYDATA, MSGFLT_ADD, IntPtr.Zero);
         ChangeWindowMessageFilterEx(this.Handle, WM_COPYGLOBALDATA, MSGFLT_ADD, IntPtr.Zero);
