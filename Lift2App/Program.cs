@@ -73,7 +73,16 @@ static class Program
             };
             Process.Start(startInfo);
         }
-        catch (Exception ex)
+        catch (System.ComponentModel.Win32Exception ex)
+        {
+            // User cancelled UAC or other Win32 error
+            MessageBox.Show(
+                $"Fehler beim Starten der Admin-Instanz:\n{ex.Message}",
+                "Fehler",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Error);
+        }
+        catch (InvalidOperationException ex)
         {
             MessageBox.Show(
                 $"Fehler beim Starten der Admin-Instanz:\n{ex.Message}",

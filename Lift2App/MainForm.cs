@@ -21,7 +21,6 @@ public partial class MainForm : Form
 
     private const string PipeName = "Lift2Pipe";
     private Thread? pipeServerThread;
-    private volatile bool isRunning = true;
     private readonly CancellationTokenSource cancellationTokenSource = new CancellationTokenSource();
 
     public MainForm(string? initialFilePath = null)
@@ -59,14 +58,23 @@ public partial class MainForm : Form
     protected override void OnFormClosing(FormClosingEventArgs e)
     {
         base.OnFormClosing(e);
-        isRunning = false;
+        
+        // Signal cancellation to the pipe server thread
         cancellationTokenSource.Cancel();
+        
+        // Wait for the pipe server thread to complete (with timeout)
+        if (pipeServerThread != null && pipeServerThread.IsAlive)
+        {
+            pipeServerThread.Join(1000); // Wait up to 1 second
+        }
+        
+        // Now safe to dispose the cancellation token source
         cancellationTokenSource.Dispose();
     }
 
     private void RunPipeServer()
     {
-        while (isRunning)
+        while (!cancellationTokenSource.Token.IsCancellationRequested)
         {
             try
             {
@@ -89,7 +97,7 @@ public partial class MainForm : Form
                         break;
                     }
                     
-                    if (!isRunning) break;
+                    if (cancellationTokenSource.Token.IsCancellationRequested) break;
                     
                     byte[] buffer = new byte[4096];
                     int bytesRead;
@@ -98,13 +106,14 @@ public partial class MainForm : Form
                     {
                         // Read with timeout to prevent indefinite blocking
                         var readTask = server.ReadAsync(buffer, 0, buffer.Length, cancellationTokenSource.Token);
-                        if (!readTask.Wait(5000)) // 5 second timeout
-                        {
-                            continue;
-                        }
+                        readTask.Wait(5000); // 5 second timeout
                         bytesRead = readTask.Result;
                     }
                     catch (OperationCanceledException)
+                    {
+                        break;
+                    }
+                    catch (AggregateException ex) when (ex.InnerException is TaskCanceledException)
                     {
                         break;
                     }
@@ -115,7 +124,11 @@ public partial class MainForm : Form
                         
                         if (!string.IsNullOrEmpty(filePath))
                         {
-                            this.Invoke(new Action(() => OpenFile(filePath)));
+                            // Check if form is still valid before invoking
+                            if (!cancellationTokenSource.Token.IsCancellationRequested && !this.IsDisposed)
+                            {
+                                this.Invoke(new Action(() => OpenFile(filePath)));
+                            }
                         }
                     }
                 }
@@ -127,7 +140,7 @@ public partial class MainForm : Form
             catch (IOException)
             {
                 // I/O errors are expected when shutting down
-                if (!isRunning) break;
+                if (cancellationTokenSource.Token.IsCancellationRequested) break;
             }
             catch (ObjectDisposedException)
             {
