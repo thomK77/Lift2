@@ -18,8 +18,10 @@ public partial class MainForm : Form
     private const uint MSGFLT_ADD = 1;
 
     private const string PipeName = "Lift2Pipe";
+    private const int MaxFilePathBufferSize = 4096; // Maximum buffer size for file paths
     private Thread? pipeServerThread;
     private volatile bool isRunning = true;
+    private readonly CancellationTokenSource cancellationTokenSource = new CancellationTokenSource();
 
     public MainForm(string? initialFilePath = null)
     {
@@ -58,6 +60,7 @@ public partial class MainForm : Form
         base.OnFormClosing(e);
         // Signal the pipe server thread to stop
         isRunning = false;
+        cancellationTokenSource.Cancel();
     }
 
     /// <summary>
@@ -76,14 +79,15 @@ public partial class MainForm : Form
                     PipeTransmissionMode.Byte,
                     PipeOptions.Asynchronous))
                 {
-                    // Wait for a client to connect
-                    server.WaitForConnection();
+                    // Wait for a client to connect with cancellation support
+                    var connectTask = server.WaitForConnectionAsync(cancellationTokenSource.Token);
+                    connectTask.Wait(cancellationTokenSource.Token);
 
                     if (!isRunning)
                         break;
 
                     // Read the file path from the pipe
-                    byte[] buffer = new byte[4096];
+                    byte[] buffer = new byte[MaxFilePathBufferSize];
                     int bytesRead = server.Read(buffer, 0, buffer.Length);
 
                     if (bytesRead > 0)
@@ -98,6 +102,11 @@ public partial class MainForm : Form
                         }
                     }
                 }
+            }
+            catch (OperationCanceledException)
+            {
+                // Cancellation requested, exit gracefully
+                break;
             }
             catch (IOException)
             {
