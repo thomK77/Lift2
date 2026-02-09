@@ -1,5 +1,7 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using System.IO.Pipes;
+using System.Text;
 
 namespace Lift2App;
 
@@ -17,9 +19,27 @@ public partial class MainForm : Form
     private const uint WM_COPYGLOBALDATA = 0x0049;
     private const uint MSGFLT_ADD = 1;
 
-    public MainForm()
+    private const string PipeName = "Lift2Pipe";
+    private Thread? pipeServerThread;
+    private volatile bool isRunning = true;
+    private readonly CancellationTokenSource cancellationTokenSource = new CancellationTokenSource();
+
+    public MainForm(string? initialFilePath = null)
     {
         InitializeComponent();
+        
+        // Start Named Pipe Server
+        pipeServerThread = new Thread(RunPipeServer)
+        {
+            IsBackground = true
+        };
+        pipeServerThread.Start();
+        
+        // Initial file öffnen falls vorhanden
+        if (!string.IsNullOrEmpty(initialFilePath))
+        {
+            OpenFile(initialFilePath);
+        }
     }
 
     protected override void OnHandleCreated(EventArgs e)
@@ -34,6 +54,56 @@ public partial class MainForm : Form
         ChangeWindowMessageFilterEx(this.Handle, WM_DROPFILES, MSGFLT_ADD, IntPtr.Zero);
         ChangeWindowMessageFilterEx(this.Handle, WM_COPYDATA, MSGFLT_ADD, IntPtr.Zero);
         ChangeWindowMessageFilterEx(this.Handle, WM_COPYGLOBALDATA, MSGFLT_ADD, IntPtr.Zero);
+    }
+
+    protected override void OnFormClosing(FormClosingEventArgs e)
+    {
+        base.OnFormClosing(e);
+        isRunning = false;
+        cancellationTokenSource.Cancel();
+    }
+
+    private void RunPipeServer()
+    {
+        while (isRunning)
+        {
+            try
+            {
+                using (var server = new NamedPipeServerStream(
+                    PipeName,
+                    PipeDirection.In,
+                    NamedPipeServerStream.MaxAllowedServerInstances,
+                    PipeTransmissionMode.Byte,
+                    PipeOptions.Asynchronous))
+                {
+                    var connectTask = server.WaitForConnectionAsync(cancellationTokenSource.Token);
+                    connectTask.Wait(cancellationTokenSource.Token);
+                    
+                    if (!isRunning) break;
+                    
+                    byte[] buffer = new byte[4096];
+                    int bytesRead = server.Read(buffer, 0, buffer.Length);
+                    
+                    if (bytesRead > 0)
+                    {
+                        string filePath = Encoding.UTF8.GetString(buffer, 0, bytesRead);
+                        
+                        if (!string.IsNullOrEmpty(filePath))
+                        {
+                            this.Invoke(new Action(() => OpenFile(filePath)));
+                        }
+                    }
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+            catch
+            {
+                if (!isRunning) break;
+            }
+        }
     }
 
     /// <summary>
