@@ -2,6 +2,17 @@
 
 Eine Windows Forms Anwendung mit .NET 9.
 
+## Funktionen
+
+### Drag & Drop Launcher
+Die Anwendung unterstützt Drag & Drop, um Dateien mit erhöhten Rechten (Administrator) zu starten:
+- Ziehen Sie eine Datei auf das MainForm-Fenster
+- Die Datei wird automatisch mit den gleichen Rechten gestartet, mit denen die Lift2-Anwendung läuft
+- Unterstützt verschiedene Dateitypen (EXE, TXT, etc.)
+- Fehlermeldungen werden angezeigt, falls Probleme auftreten
+
+**Hinweis**: Um Dateien mit Administrator-Rechten zu starten, muss die Lift2-Anwendung selbst mit Administrator-Rechten ausgeführt werden.
+
 ## Projektstruktur
 
 - **Lift2App**: Die Haupt-Windows-Forms-Anwendung
