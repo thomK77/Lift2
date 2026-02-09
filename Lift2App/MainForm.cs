@@ -1,5 +1,7 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using System.IO.Pipes;
+using System.Text;
 
 namespace Lift2App;
 
@@ -15,9 +17,26 @@ public partial class MainForm : Form
     private const uint WM_COPYGLOBALDATA = 0x0049;
     private const uint MSGFLT_ADD = 1;
 
-    public MainForm()
+    private const string PipeName = "Lift2Pipe";
+    private Thread? pipeServerThread;
+    private volatile bool isRunning = true;
+
+    public MainForm(string? initialFilePath = null)
     {
         InitializeComponent();
+
+        // Start the Named Pipe server in a separate thread
+        pipeServerThread = new Thread(RunPipeServer)
+        {
+            IsBackground = true
+        };
+        pipeServerThread.Start();
+
+        // If a file path was provided on startup, open it
+        if (!string.IsNullOrEmpty(initialFilePath))
+        {
+            OpenFile(initialFilePath);
+        }
     }
 
     protected override void OnHandleCreated(EventArgs e)
@@ -32,6 +51,132 @@ public partial class MainForm : Form
         ChangeWindowMessageFilterEx(this.Handle, WM_DROPFILES, MSGFLT_ADD, IntPtr.Zero);
         ChangeWindowMessageFilterEx(this.Handle, WM_COPYDATA, MSGFLT_ADD, IntPtr.Zero);
         ChangeWindowMessageFilterEx(this.Handle, WM_COPYGLOBALDATA, MSGFLT_ADD, IntPtr.Zero);
+    }
+
+    protected override void OnFormClosing(FormClosingEventArgs e)
+    {
+        base.OnFormClosing(e);
+        // Signal the pipe server thread to stop
+        isRunning = false;
+    }
+
+    /// <summary>
+    /// Runs the Named Pipe server in a separate thread to listen for incoming file paths.
+    /// </summary>
+    private void RunPipeServer()
+    {
+        while (isRunning)
+        {
+            try
+            {
+                using (var server = new NamedPipeServerStream(
+                    PipeName,
+                    PipeDirection.In,
+                    1, // Max number of server instances
+                    PipeTransmissionMode.Byte,
+                    PipeOptions.Asynchronous))
+                {
+                    // Wait for a client to connect
+                    server.WaitForConnection();
+
+                    if (!isRunning)
+                        break;
+
+                    // Read the file path from the pipe
+                    byte[] buffer = new byte[4096];
+                    int bytesRead = server.Read(buffer, 0, buffer.Length);
+
+                    if (bytesRead > 0)
+                    {
+                        string filePath = Encoding.UTF8.GetString(buffer, 0, bytesRead);
+
+                        // Open the file on the UI thread
+                        if (!string.IsNullOrEmpty(filePath))
+                        {
+                            // Use Invoke to call OpenFile on the UI thread
+                            this.Invoke(new Action(() => OpenFile(filePath)));
+                        }
+                    }
+                }
+            }
+            catch (IOException)
+            {
+                // Pipe was broken or closed, continue listening
+                if (!isRunning)
+                    break;
+            }
+            catch (Exception)
+            {
+                // Other errors, continue listening unless stopping
+                if (!isRunning)
+                    break;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Opens a file with the same privileges as the current process.
+    /// </summary>
+    /// <param name="filePath">The file path to open.</param>
+    private void OpenFile(string filePath)
+    {
+        try
+        {
+            // Check if file exists
+            if (!File.Exists(filePath))
+            {
+                MessageBox.Show(
+                    $"Die Datei existiert nicht:\n{filePath}",
+                    "Fehler",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error);
+                return;
+            }
+
+            // Start the file with the same privileges as the current process
+            ProcessStartInfo startInfo = new ProcessStartInfo
+            {
+                FileName = filePath,
+                UseShellExecute = true,
+                // If Lift2 is running with admin rights, the started process will inherit them
+                Verb = "" // Empty verb means use default action
+            };
+
+            Process? startedProcess = Process.Start(startInfo);
+            if (startedProcess != null)
+            {
+                labelDroppedFile.Text = $"Gestartet: {Path.GetFileName(filePath)}";
+                MessageBox.Show(
+                    $"Datei erfolgreich gestartet:\n{Path.GetFileName(filePath)}",
+                    "Erfolg",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information);
+            }
+            else
+            {
+                MessageBox.Show(
+                    $"Prozess konnte nicht gestartet werden:\n{filePath}",
+                    "Fehler",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error);
+            }
+        }
+        catch (System.ComponentModel.Win32Exception ex)
+        {
+            MessageBox.Show(
+                $"Fehler beim Starten der Datei:\n{filePath}\n\n{ex.Message}",
+                "Fehler",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Error);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(
+                $"Unerwarteter Fehler:\n{ex.Message}",
+                "Fehler",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Error);
+        }
     }
 
     private void MainForm_DragEnter(object? sender, DragEventArgs e)
