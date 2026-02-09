@@ -1,9 +1,12 @@
+using System.IO.Pipes;
+using System.Text;
+using System.Diagnostics;
+
 namespace Lift2App;
 
 static class Program
 {
-    private const string MutexName = "Global\\Lift2AppMutex";
-    private static Mutex? appMutex; // Hold mutex for application lifetime
+    private const string PipeName = "Lift2Pipe";
 
     /// <summary>
     ///  The main entry point for the application.
@@ -11,37 +14,81 @@ static class Program
     [STAThread]
     static void Main(string[] args)
     {
-        // Try to create or open the mutex
-        bool createdNew;
-        appMutex = new Mutex(true, MutexName, out createdNew);
-
-        if (!createdNew)
+        // Datei aus Kommandozeile
+        string? filePath = args.Length > 0 ? args[0] : null;
+        
+        if (!string.IsNullOrEmpty(filePath))
         {
-            // Another instance is already running, inform the user
-            MessageBox.Show(
-                "Eine Instanz von Lift2 läuft bereits.",
-                "Information",
-                MessageBoxButtons.OK,
-                MessageBoxIcon.Information);
-            appMutex.Dispose();
+            // Versuche an laufende Admin-Instanz zu senden
+            if (TryConnectToPipe(filePath))
+            {
+                // Erfolgreich gesendet, beenden
+                return;
+            }
+            
+            // Keine Admin-Instanz läuft → Neue starten mit Admin-Rechten
+            StartElevatedInstance(filePath);
             return;
         }
+        
+        // Keine Datei → Normale Instanz starten
+        ApplicationConfiguration.Initialize();
+        Application.Run(new MainForm(filePath));
+    }
 
+    private static bool TryConnectToPipe(string filePath)
+    {
         try
         {
-            // This is the first instance
-            // To customize application configuration such as set high DPI settings or default font,
-            // see https://aka.ms/applicationconfiguration.
-            ApplicationConfiguration.Initialize();
-            
-            // Create and run the main form
-            var mainForm = new MainForm();
-            Application.Run(mainForm);
+            using (var client = new NamedPipeClientStream(".", PipeName, PipeDirection.Out))
+            {
+                client.Connect(1000); // 1 Sekunde Timeout
+                byte[] buffer = Encoding.UTF8.GetBytes(filePath);
+                client.Write(buffer, 0, buffer.Length);
+                return true;
+            }
         }
-        finally
+        catch (TimeoutException)
         {
-            // Release the mutex when application exits
-            appMutex?.Dispose();
+            // Timeout beim Verbindungsversuch - keine Instanz läuft
+            return false;
+        }
+        catch (IOException)
+        {
+            // I/O Fehler beim Verbindungsversuch
+            return false;
+        }
+    }
+
+    private static void StartElevatedInstance(string filePath)
+    {
+        try
+        {
+            ProcessStartInfo startInfo = new ProcessStartInfo
+            {
+                FileName = Application.ExecutablePath,
+                Arguments = $"\"{filePath}\"",
+                Verb = "runas", // Admin-Rechte anfordern
+                UseShellExecute = true
+            };
+            Process.Start(startInfo);
+        }
+        catch (System.ComponentModel.Win32Exception ex)
+        {
+            // User cancelled UAC or other Win32 error
+            MessageBox.Show(
+                $"Fehler beim Starten der Admin-Instanz:\n{ex.Message}",
+                "Fehler",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Error);
+        }
+        catch (InvalidOperationException ex)
+        {
+            MessageBox.Show(
+                $"Fehler beim Starten der Admin-Instanz:\n{ex.Message}",
+                "Fehler",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Error);
         }
     }
 }

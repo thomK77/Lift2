@@ -1,5 +1,7 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using System.IO.Pipes;
+using System.Text;
 
 namespace Lift2App;
 
@@ -17,9 +19,26 @@ public partial class MainForm : Form
     private const uint WM_COPYGLOBALDATA = 0x0049;
     private const uint MSGFLT_ADD = 1;
 
-    public MainForm()
+    private const string PipeName = "Lift2Pipe";
+    private Thread? pipeServerThread;
+    private readonly CancellationTokenSource cancellationTokenSource = new CancellationTokenSource();
+
+    public MainForm(string? initialFilePath = null)
     {
         InitializeComponent();
+        
+        // Start Named Pipe Server
+        pipeServerThread = new Thread(RunPipeServer)
+        {
+            IsBackground = true
+        };
+        pipeServerThread.Start();
+        
+        // Initial file öffnen falls vorhanden
+        if (!string.IsNullOrEmpty(initialFilePath))
+        {
+            OpenFile(initialFilePath);
+        }
     }
 
     protected override void OnHandleCreated(EventArgs e)
@@ -34,6 +53,101 @@ public partial class MainForm : Form
         ChangeWindowMessageFilterEx(this.Handle, WM_DROPFILES, MSGFLT_ADD, IntPtr.Zero);
         ChangeWindowMessageFilterEx(this.Handle, WM_COPYDATA, MSGFLT_ADD, IntPtr.Zero);
         ChangeWindowMessageFilterEx(this.Handle, WM_COPYGLOBALDATA, MSGFLT_ADD, IntPtr.Zero);
+    }
+
+    protected override void OnFormClosing(FormClosingEventArgs e)
+    {
+        base.OnFormClosing(e);
+        
+        // Signal cancellation to the pipe server thread
+        cancellationTokenSource.Cancel();
+        
+        // Wait for the pipe server thread to complete (with timeout)
+        if (pipeServerThread != null && pipeServerThread.IsAlive)
+        {
+            pipeServerThread.Join(1000); // Wait up to 1 second
+        }
+        
+        // Now safe to dispose the cancellation token source
+        cancellationTokenSource.Dispose();
+    }
+
+    private void RunPipeServer()
+    {
+        while (!cancellationTokenSource.Token.IsCancellationRequested)
+        {
+            try
+            {
+                using (var server = new NamedPipeServerStream(
+                    PipeName,
+                    PipeDirection.In,
+                    NamedPipeServerStream.MaxAllowedServerInstances,
+                    PipeTransmissionMode.Byte,
+                    PipeOptions.Asynchronous))
+                {
+                    // Use async wait with cancellation token
+                    var connectTask = server.WaitForConnectionAsync(cancellationTokenSource.Token);
+                    
+                    try
+                    {
+                        connectTask.Wait(cancellationTokenSource.Token);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        break;
+                    }
+                    
+                    if (cancellationTokenSource.Token.IsCancellationRequested) break;
+                    
+                    byte[] buffer = new byte[4096];
+                    int bytesRead;
+                    
+                    try
+                    {
+                        // Read with timeout to prevent indefinite blocking
+                        var readTask = server.ReadAsync(buffer, 0, buffer.Length, cancellationTokenSource.Token);
+                        readTask.Wait(5000); // 5 second timeout
+                        bytesRead = readTask.Result;
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        break;
+                    }
+                    catch (AggregateException ex) when (ex.InnerException is TaskCanceledException)
+                    {
+                        break;
+                    }
+                    
+                    if (bytesRead > 0)
+                    {
+                        string filePath = Encoding.UTF8.GetString(buffer, 0, bytesRead);
+                        
+                        if (!string.IsNullOrEmpty(filePath))
+                        {
+                            // Check if form is still valid before invoking
+                            if (!cancellationTokenSource.Token.IsCancellationRequested && !this.IsDisposed)
+                            {
+                                this.Invoke(new Action(() => OpenFile(filePath)));
+                            }
+                        }
+                    }
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+            catch (IOException)
+            {
+                // I/O errors are expected when shutting down
+                if (cancellationTokenSource.Token.IsCancellationRequested) break;
+            }
+            catch (ObjectDisposedException)
+            {
+                // Expected during shutdown
+                break;
+            }
+        }
     }
 
     /// <summary>
