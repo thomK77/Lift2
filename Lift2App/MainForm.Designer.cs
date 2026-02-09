@@ -38,7 +38,6 @@ partial class MainForm
         labelInstructions.Font = new Font("Segoe UI", 14F, FontStyle.Bold);
         labelInstructions.Location = new Point(200, 150);
         labelInstructions.Name = "labelInstructions";
-        labelInstructions.Size = new Size(400, 50);
         labelInstructions.TabIndex = 0;
         labelInstructions.Text = "Dateien hier ablegen (Drag & Drop)\r\num sie mit Administrator-Rechten zu starten";
         labelInstructions.TextAlign = ContentAlignment.MiddleCenter;

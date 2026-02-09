@@ -57,8 +57,15 @@ public partial class MainForm : Form
                                 Verb = "" // Empty verb means use default action
                             };
 
-                            Process.Start(startInfo);
-                            successfulFiles.Add(filePath);
+                            Process? startedProcess = Process.Start(startInfo);
+                            if (startedProcess != null)
+                            {
+                                successfulFiles.Add(filePath);
+                            }
+                            else
+                            {
+                                failedFiles.Add($"{filePath} (Prozess konnte nicht gestartet werden)");
+                            }
                         }
                         catch (System.ComponentModel.Win32Exception ex)
                         {
