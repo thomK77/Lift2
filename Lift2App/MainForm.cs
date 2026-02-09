@@ -1,12 +1,35 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 
 namespace Lift2App;
 
 public partial class MainForm : Form
 {
+    // P/Invoke declarations for Windows UIPI (User Interface Privilege Isolation) bypass
+    // These are needed to allow drag & drop from non-elevated applications when running with admin rights
+    [DllImport("user32.dll")]
+    private static extern bool ChangeWindowMessageFilterEx(IntPtr hwnd, uint message, uint action, IntPtr pChangeFilterStruct);
+
+    private const uint WM_DROPFILES = 0x0233;
+    private const uint WM_COPYDATA = 0x004A;
+    private const uint WM_COPYGLOBALDATA = 0x0049;
+    private const uint MSGFLT_ADD = 1;
+
     public MainForm()
     {
         InitializeComponent();
+    }
+
+    protected override void OnHandleCreated(EventArgs e)
+    {
+        base.OnHandleCreated(e);
+
+        // UIPI-Bypass: Allow drag & drop from non-elevated applications
+        // When running with admin rights, Windows blocks drag & drop from normal applications
+        // for security reasons. These calls explicitly allow the necessary messages.
+        ChangeWindowMessageFilterEx(this.Handle, WM_DROPFILES, MSGFLT_ADD, IntPtr.Zero);
+        ChangeWindowMessageFilterEx(this.Handle, WM_COPYDATA, MSGFLT_ADD, IntPtr.Zero);
+        ChangeWindowMessageFilterEx(this.Handle, WM_COPYGLOBALDATA, MSGFLT_ADD, IntPtr.Zero);
     }
 
     private void MainForm_DragEnter(object? sender, DragEventArgs e)

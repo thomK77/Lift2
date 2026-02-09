@@ -10,6 +10,7 @@ Die Anwendung unterstützt Drag & Drop, um Dateien mit erhöhten Rechten (Admini
 - Die Datei wird automatisch mit den gleichen Rechten gestartet, mit denen die Lift2-Anwendung läuft
 - Unterstützt verschiedene Dateitypen (EXE, TXT, etc.)
 - Fehlermeldungen werden angezeigt, falls Probleme auftreten
+- **Drag & Drop funktioniert auch von nicht-erhöhten Anwendungen** (z.B. normaler Windows Explorer), selbst wenn Lift2 mit Administrator-Rechten läuft
 
 **Hinweis**: Um Dateien mit Administrator-Rechten zu starten, muss die Lift2-Anwendung selbst mit Administrator-Rechten ausgeführt werden.
 
