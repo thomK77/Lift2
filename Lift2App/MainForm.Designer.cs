@@ -30,6 +30,7 @@ partial class MainForm
     {
         labelInstructions = new Label();
         labelDroppedFile = new Label();
+        buttonOpenFile = new Button();
         SuspendLayout();
         // 
         // labelInstructions
@@ -50,12 +51,24 @@ partial class MainForm
         labelDroppedFile.Size = new Size(0, 15);
         labelDroppedFile.TabIndex = 1;
         // 
+        // buttonOpenFile
+        // 
+        buttonOpenFile.Font = new Font("Segoe UI", 12F);
+        buttonOpenFile.Location = new Point(300, 300);
+        buttonOpenFile.Name = "buttonOpenFile";
+        buttonOpenFile.Size = new Size(200, 50);
+        buttonOpenFile.TabIndex = 2;
+        buttonOpenFile.Text = "Datei öffnen...";
+        buttonOpenFile.UseVisualStyleBackColor = true;
+        buttonOpenFile.Click += ButtonOpenFile_Click;
+        // 
         // MainForm
         // 
         AllowDrop = true;
         AutoScaleDimensions = new SizeF(7F, 15F);
         AutoScaleMode = AutoScaleMode.Font;
         ClientSize = new Size(800, 450);
+        Controls.Add(buttonOpenFile);
         Controls.Add(labelDroppedFile);
         Controls.Add(labelInstructions);
         Name = "MainForm";
@@ -70,4 +83,5 @@ partial class MainForm
 
     private Label labelInstructions;
     private Label labelDroppedFile;
+    private Button buttonOpenFile;
 }

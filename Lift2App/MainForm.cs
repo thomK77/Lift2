@@ -328,4 +328,21 @@ public partial class MainForm : Form
                 MessageBoxIcon.Error);
         }
     }
+
+    private void ButtonOpenFile_Click(object? sender, EventArgs e)
+    {
+        using (OpenFileDialog openFileDialog = new OpenFileDialog())
+        {
+            openFileDialog.Title = "Datei zum Ausführen auswählen";
+            openFileDialog.Filter = "Alle Dateien (*.*)|*.*";
+            openFileDialog.CheckFileExists = true;
+            openFileDialog.Multiselect = false;
+
+            if (openFileDialog.ShowDialog() == DialogResult.OK)
+            {
+                string selectedFilePath = openFileDialog.FileName;
+                OpenFile(selectedFilePath);
+            }
+        }
+    }
 }
